@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Stream</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: auto;
+            flex-direction: column;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .video-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+        .video-container img,
+    </style>
+</head>
+<body>
+    <h1>Live Inference Stream (MJPEG)</h1>
+    <div class="video-container">
+        <img src="{{ url_for('video_feed') }}" alt="Inference output">
+    </div>
+
+</body>
+</html>
+
