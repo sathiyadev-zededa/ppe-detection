@@ -1,0 +1,30 @@
+name: Build container image 
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Dockerfiles'
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.CONTAINER_REGISTRY }}
+          username: ${{ secrets.REGISTRY_NAME }}
+          password: ${{ secrets.REGISTRY_SECRET }}
+      - name: Build Container Image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Dockerfile
+          tags: |
+            ${{ secret.CONTAINER_REGISTRY }}/ppe-version:latest
+            ${{ secret.CONTAINER_REGISTRY }}/ppe-version:build-${{ github.run_number }}
