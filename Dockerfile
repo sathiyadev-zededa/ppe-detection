@@ -15,9 +15,9 @@ RUN service ssh start
 RUN mkdir -p /home/pocuser/server
 RUN mkdir -p /home/pocuser/server/templates
 VOLUME ["/app/data"]
-COPY inference_helmet.py /home/pocuser/server/
+COPY inference_helmet_safety.py /home/pocuser/server/
 COPY templates/index.html /home/pocuser/server/templates/
-COPY helmet_detection_yolov8_latest_v3.pt /home/pocuser/server/
+COPY best_jacket.pt /home/pocuser/server/
 COPY wrapper_script.sh /home/pocuser/server/
 WORKDIR /home/pocuser/server/
 EXPOSE 22
