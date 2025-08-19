@@ -26,5 +26,5 @@ jobs:
           context: .
           file: Dockerfile
           tags: |
-            ${{ secret.CONTAINER_REGISTRY }}/ppe-version:latest
-            ${{ secret.CONTAINER_REGISTRY }}/ppe-version:build-${{ github.run_number }}
+            ${{ secrets.CONTAINER_REGISTRY }}/ppe-version:latest
+            ${{ secrets.CONTAINER_REGISTRY }}/ppe-version:build-${{ github.run_number }}
