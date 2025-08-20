@@ -7,6 +7,7 @@ on:
       - 'Dockerfiles'
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -14,6 +15,12 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+      - name: Debug GitHub context
+        run: |
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Run number: ${{ github.run_number }}"
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
