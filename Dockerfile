@@ -18,6 +18,7 @@ VOLUME ["/app/data"]
 COPY inference_helmet.py /home/pocuser/server/
 COPY templates/index.html /home/pocuser/server/templates/
 COPY helmet_detection_yolov8_latest_v3.pt /home/pocuser/server/
+COPY wrapper_script.sh /home/pocuser/server/
 WORKDIR /home/pocuser/server/
 EXPOSE 22
 EXPOSE 8080
