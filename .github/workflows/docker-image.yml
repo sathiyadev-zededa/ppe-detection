@@ -4,7 +4,8 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - 'Dockerfiles'
+      - 'Dockerfile'
+      - 'wrapper_script.sh'
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
