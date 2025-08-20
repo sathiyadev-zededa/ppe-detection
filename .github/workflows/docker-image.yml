@@ -32,6 +32,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          push: true
           tags: |
             ${{ secrets.CONTAINER_REGISTRY }}/ppe-version:latest
             ${{ secrets.CONTAINER_REGISTRY }}/ppe-version:build-${{ github.run_number }}
