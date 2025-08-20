@@ -46,6 +46,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
+      - name: Run Update script
+        run: |
+          python scripts/Update_edge_app.py --auth_token ${{ secrets.API_TOKEN }} --edge_app ppe_detection-cpu --data_store azureACR --container_image ppe-version:build-${{ github.run_number }} 
       
       
      
