@@ -174,6 +174,18 @@ def generate_frames():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
+@app.route('/retain_files', methods=['GET'])
+def get_retrain_files():
+    try:
+        directory = os.path.abspath('/app/data/low_confidence_frames')
+        if not os.path.isdir(directory):
+            return jsonify({'error': 'Directory not found'}), 404
+        file_line = os.listdir(directory)
+        return jsonify(file_line)
+    except Exception as e:
+        print(f"Exception while collecting low confidence files: {e}")
+        return {}
+
 if __name__ == "__main__":
     threading.Thread(target=tcp_frame_receiver, args=(args.port,), daemon=True).start()
     threading.Thread(target=inference_worker, daemon=True).start()
