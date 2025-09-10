@@ -1,3 +1,4 @@
+
 FROM python:3.12-slim
 RUN apt update && apt install openssh-server sudo -y
 RUN apt update && \
@@ -9,6 +10,7 @@ RUN pip install torch torchvision torchaudio --index-url https://download.pytorc
 RUN pip install opencv-python
 RUN pip install lapx>=0.5.2
 RUN pip install ultralytics
+RUN pip install prometheus_client==0.20.0
 RUN useradd -rm -d /home/ubuntu -s /bin/bash  -g root -G sudo -u 1001 pocuser
 RUN echo 'pocuser:pocuser' | chpasswd
 RUN service ssh start
@@ -23,5 +25,6 @@ WORKDIR /home/pocuser/server/
 EXPOSE 22
 EXPOSE 8080
 EXPOSE 5000
+EXPOSE 8000
 RUN ["chmod", "+x", "./wrapper_script.sh"]
 CMD ["./wrapper_script.sh"]
