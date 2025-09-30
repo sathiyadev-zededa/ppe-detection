@@ -1,0 +1,111 @@
+{
+    "id": null,
+    "title": "PPE Detection Dashboard",
+    "timezone": "browser",
+    "schemaVersion": 36,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Per-frame Helmet Detections",
+        "name": "Per-frame Helmet Detections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "ppe_detections_frame{class_='helmet'}",
+            "legendFormat": "Helmet",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"x":0,"y":0,"w":12,"h":6}
+      },
+      {
+        "id": 2,
+        "title": "Per-frame Head Detections",
+        "name": "Per-frame Head Detections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "ppe_detections_frame{class_='head'}",
+            "legendFormat": "Head",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"x":12,"y":0,"w":12,"h":6}
+      },
+      {
+        "id": 3,
+        "title": "Total Detections",
+        "name": "Total Detections",
+        "type": "graph",
+        "targets": [
+          {"expr": "ppe_detections_total{class_='helmet'}", "legendFormat": "Helmet", "refId": "A"},
+          {"expr": "ppe_detections_total{class_='head'}", "legendFormat": "Head", "refId": "B"}
+        ],
+        "gridPos": {"x":0,"y":6,"w":12,"h":6}
+      },
+      {
+        "id": 4,
+        "title": "PPE Violations",
+        "name": "PPE Violations",
+        "type": "graph",
+        "targets": [
+          {"expr": "ppe_violations_total{type='no_helmet'}", "legendFormat": "No Helmet", "refId": "A"}
+        ],
+        "gridPos": {"x":12,"y":6,"w":12,"h":6}
+      },
+      {
+        "id": 5,
+        "title": "Average Confidence",
+        "name": "Average Confidence",
+        "type": "graph",
+        "targets": [
+          {"expr": "ppe_confidence_avg{class_='helmet'}", "legendFormat": "Helmet", "refId": "A"},
+          {"expr": "ppe_confidence_avg{class_='head'}", "legendFormat": "Head", "refId": "B"}
+        ],
+        "gridPos": {"x":0,"y":12,"w":12,"h":6}
+      },
+      {
+        "id": 6,
+        "title": "Inference Latency",
+        "name": "Inference Latency",
+        "type": "graph",
+        "targets": [
+          {"expr": "ppe_inference_latency_seconds_sum/ppe_inference_latency_seconds_count", "legendFormat": "Latency", "refId": "A"}
+        ],
+        "gridPos": {"x":12,"y":12,"w":12,"h":6}
+      },
+      {
+        "id": 7,
+        "title": "App Health",
+        "name": "App Health",
+        "type": "stat",
+        "targets": [
+          {"expr": "ppe_app_health", "refId": "A"}
+        ],
+        "gridPos": {"x":0,"y":18,"w":6,"h":3}
+      },
+      {
+        "id": 8,
+        "title": "Total Errors",
+        "name": "Total Errors",
+        "type": "stat",
+        "targets": [
+          {"expr": "ppe_errors_total", "refId": "A"}
+        ],
+        "gridPos": {"x":6,"y":18,"w":6,"h":3}
+      },
+      {
+        "id": 9,
+        "title": "Live Video Feed",
+        "name": "Live Video Feed",
+        "type": "text",
+        "gridPos": {"x":12,"y":18,"w":12,"h":12},
+        "options": {
+          "content": "<iframe src='http://ppe_service:5000/video_feed' width='100%' height='100%' frameborder='0'></iframe>",
+          "mode": "html"
+        }
+      }
+    ]
+}

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ppe-detection
+  namespace: default
+  labels:
+    app: ppe-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ppe-detection
+  template:
+    metadata:
+      labels:
+        app: ppe-detection
+    spec:
+      containers:
+      - name: ppe-detection
+        image: {{ .Values.ppeDetection.image }}
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: ppe-data
+          mountPath: /app/data
+        ports:
+        {{- range .Values.ppeDetection.ports }}
+          - containerPort: {{ .port }}
+        {{- end }}
+      volumes:
+      - name: ppe-data
+        emptyDir: {}
+      imagePullSecrets:
+      - name: {{ .Values.imagePullSecret.name }}

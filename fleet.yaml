@@ -1,0 +1,6 @@
+defaultNamespace: default
+
+helm:
+  chart: ./ppe-cpu-helm
+  valuesFiles:
+    - ./ppe-cpu-helm/values.yaml
