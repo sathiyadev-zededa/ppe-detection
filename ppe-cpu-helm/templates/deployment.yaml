@@ -30,7 +30,7 @@ spec:
       - name: ppe-data
         {{- if .Values.persistence.enabled }}
         persistentVolumeClaim:
-          claimName: {{ include "ppe-detection.fullname" . }}-pvc
+          claimName: ppe-detection-pvc
         {{- else }}
         emptyDir: {}
         {{- end }}
