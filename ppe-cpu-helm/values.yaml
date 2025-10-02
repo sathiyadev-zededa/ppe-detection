@@ -24,11 +24,3 @@ grafana:
   image: commonpoc.azurecr.io/ppe_grafana
   port: 3000
   nodePort: 30005
-
-persistence:
-  enabled: true
-  storageClass: "standard"
-  size: 1Gi
-  accessModes:
-    - ReadWriteOnce
-
