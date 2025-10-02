@@ -3,7 +3,7 @@ imagePullSecret:
   dockerconfigjson: "eyJhdXRocyI6eyJjb21tb25wb2MuYXp1cmVjci5pbyI6eyJ1c2VybmFtZSI6ImNvbW1vbnBvYyIsInBhc3N3b3JkIjoiSkk4MDgzKz1Ob2VybGZlL0N1dThieW8yT3RCTHdSNXoiLCJhdXRoIjoiWTI5dGJXOXVjRzlqT2twSk9EQTRNeXM5VG05bGNteG1aUzlEZFhVNFlubHZNazkwUWt4M1VqVjYifX19"
 
 ppeDetection:
-  image: commonpoc.azurecr.io/ppe_detection_cpu_gitex:3.0.0
+  image: commonpoc.azurecr.io/ppe_detection_cpu_gitex:1.0.0
   ports:
   - name: http-5000
     port: 5000
