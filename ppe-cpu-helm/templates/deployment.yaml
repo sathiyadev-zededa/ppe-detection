@@ -28,6 +28,12 @@ spec:
         {{- end }}
       volumes:
       - name: ppe-data
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "ppe-detection.fullname" . }}-pvc
+        {{- else }}
         emptyDir: {}
+        {{- end }}
       imagePullSecrets:
       - name: {{ .Values.imagePullSecret.name }}
+
