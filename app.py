@@ -6,21 +6,15 @@ import queue
 import numpy as np
 import cv2
 import socket
-import torch
-import ssl
-import time, os, json
-from flask import Flask, Response, render_template, jsonify
+import time, os
+from flask import Flask, Response, render_template
 from prometheus_client import start_http_server, Counter, Gauge, Histogram
 from ultralytics import YOLO
 
-ssl._create_default_https_context = ssl._create_unverified_context
 frame_size = (640, 480)
 CLIENT_TIMEOUT = 10
-file_path = 'data.json'
 save_directory = '/app/data/low_confidence_frames'
-
-if not os.path.exists(save_directory):
-    os.makedirs(save_directory, exist_ok=True)
+os.makedirs(save_directory, exist_ok=True)
 
 parser = argparse.ArgumentParser(description="YOLOv8 TCP Stream (Threaded, CPU)")
 parser.add_argument("--path", required=True, help="Path to YOLOv8 model")
@@ -34,30 +28,29 @@ frame_queue = queue.Queue(maxsize=1)
 current_frame = None
 frame_lock = threading.Lock()
 
-start_http_server(8000)
+start_http_server(8000)  # Expose metrics
 
-detections_total = Counter('ppe_detections_total', 'Total PPE detections', ['class'])
+detections_total = Counter('ppe_detections_total', 'Total PPE detections', ['class_'])
 violations_total = Counter('ppe_violations_total', 'Total PPE violations', ['type'])
-confidence_avg = Gauge('ppe_confidence_avg', 'Average confidence score', ['class'])
+confidence_avg = Gauge('ppe_confidence_avg', 'Average confidence score', ['class_'])
 inference_latency = Histogram('ppe_inference_latency_seconds', 'Inference latency', buckets=[0.1, 0.5, 1.0, 2.0, 5.0])
+ppe_detections_frame = Gauge('ppe_detections_frame', 'PPE detections per frame', ['class_'])
 error_count = Counter('ppe_errors_total', 'Total errors during detection')
 health_gauge = Gauge('ppe_app_health', 'Application health status (1=healthy, 0=unhealthy)')
 
 def tcp_frame_receiver(port):
-    print("before connection")
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(('0.0.0.0', port))
     server_socket.listen(1)
     print(f"[TCP] Listening on port {port}...")
-    print("after connection")
+
     while True:
         conn, addr = server_socket.accept()
         print(f"[TCP] Connected from {addr}")
         conn.settimeout(5.0)
         data = b""
         payload_size = struct.calcsize("Q")
-        print(f"payload size: {payload_size}")
         last_data_time = time.time()
 
         try:
@@ -70,7 +63,6 @@ def tcp_frame_receiver(port):
 
                 if not data:
                     if time.time() - last_data_time > CLIENT_TIMEOUT:
-                        print("[TCP] Client timeout, closing connection.")
                         break
                     continue
 
@@ -86,14 +78,8 @@ def tcp_frame_receiver(port):
                 camera_name, frame = pickle.loads(frame_data)
                 frame = cv2.resize(frame, frame_size)
 
-                #np_data = np.frombuffer(frame_data, np.uint8)
-                #frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
-                #print(f"FRAME ::::: {frame}")
-
                 if frame is None:
                     continue
-
-                #frame = cv2.resize(frame, frame_size)
 
                 if frame_queue.full():
                     try:
@@ -101,7 +87,6 @@ def tcp_frame_receiver(port):
                     except queue.Empty:
                         pass
                 frame_queue.put(frame)
-
                 last_data_time = time.time()
 
         except Exception as e:
@@ -114,63 +99,63 @@ def process_inference(frame):
     try:
         start_time = time.time()
         results = model.track(frame, persist=True)
-        output = {
-            "helmet": [],
-            "head": [],
-            "safety-jacket": []
-        }
+        output = {"helmet": [], "head": [], "safety-jacket": []}
 
         if len(results) > 0:
             result = results[0]
             for box in result.boxes:
                 cls_name = result.names[int(box.cls)]
                 confidence = float(box.conf)
-                output[cls_name].append({"class": cls_name, "confidence": confidence})
+                if cls_name in output:
+                    output[cls_name].append(confidence)
 
+            # Count detections
             helmet_detections = len(output["helmet"])
-            head_detection = len(output["head"])
-            jacket_detection = len(output["safety-jacket"]
+            head_detections = len(output["head"])
 
+            # Increment total counters
             detections_total.labels('helmet').inc(helmet_detections)
-            detections_total.labels('head').inc(head_detection)
-            detections_total.labels('safety-jacket').inc(jacket_detection)
+            detections_total.labels('head').inc(head_detections)
 
-            no_helmet_violations = 0
-            no_jacket_violations = 0
+            # Update per-frame gauges
+            ppe_detections_frame.labels(class_='helmet').set(helmet_detections)
+            ppe_detections_frame.labels(class_='head').set(head_detections)
+
+            # Update confidence gauges
+            if helmet_detections > 0:
+                confidence_avg.labels('helmet').set(np.mean(output["helmet"]))
+            if head_detections > 0:
+                confidence_avg.labels('head').set(np.mean(output["head"]))
+
             if head_detections > 0:
                 if helmet_detections == 0:
-                    no_helmet_violations = head_detections
                     violations_total.labels('no_helmet').inc(head_detections)
-                if jacket_detections == 0:
-                    no_jacket_violations = head_detections
-                    violations_total.labels('no_safety_jacket').inc(head_detections)
+
+            latency = time.time() - start_time
+            inference_latency.observe(latency)
+
+            health_gauge.set(1)
+
             return result
         else:
             return None
+
     except Exception as e:
+        print(f"[Inference Error] {e}")
         error_count.inc()
         health_gauge.set(0)
-        print(f"Error: {e}")
         return None
 
 def inference_worker():
     global current_frame
-    frame_count = 0
-    print(f"inside inference_worker")
     while True:
         try:
             frame = frame_queue.get(timeout=1)
         except queue.Empty:
-            print("Queue empty...", flush=True)
             continue
 
-        print("Processing frame...", flush=True)
         result = process_inference(frame)
-
-        if result == None:
-            annotated_frame = frame.copy()
-        else:
-            annotated_frame = result.plot()
+        annotated_frame = frame.copy() if result is None else result.plot()
 
         with frame_lock:
             current_frame = annotated_frame.copy()
@@ -200,3 +185,4 @@ if __name__ == "__main__":
     threading.Thread(target=tcp_frame_receiver, args=(args.port,), daemon=True).start()
     threading.Thread(target=inference_worker, daemon=True).start()
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+
