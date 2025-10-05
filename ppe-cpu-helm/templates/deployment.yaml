@@ -28,6 +28,7 @@ spec:
         {{- end }}
       volumes:
       - name: ppe-data
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistentVolume.name }}
       imagePullSecrets:
       - name: {{ .Values.imagePullSecret.name }}

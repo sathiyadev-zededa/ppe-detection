@@ -25,3 +25,8 @@ grafana:
   port: 3000
   nodePort: 30005
 
+persistentVolume:
+  classname: local-path
+  storage: 1Gi
+  name: local-path-pvc
+
