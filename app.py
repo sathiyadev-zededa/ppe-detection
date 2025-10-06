@@ -28,7 +28,7 @@ frame_queue = queue.Queue(maxsize=1)
 current_frame = None
 frame_lock = threading.Lock()
 
-start_http_server(8000)  # Expose metrics
+start_http_server(8000)
 
 detections_total = Counter('ppe_detections_total', 'Total PPE detections', ['class_'])
 violations_total = Counter('ppe_violations_total', 'Total PPE violations', ['type'])
@@ -99,6 +99,7 @@ def process_inference(frame):
     try:
         start_time = time.time()
         results = model.track(frame, persist=True)
+        low_confidence = False
         output = {"helmet": [], "head": [], "safety-jacket": []}
 
         if len(results) > 0:
@@ -106,22 +107,26 @@ def process_inference(frame):
             for box in result.boxes:
                 cls_name = result.names[int(box.cls)]
                 confidence = float(box.conf)
+                if confidence < 0.5:
+                    low_confidence = True
                 if cls_name in output:
                     output[cls_name].append(confidence)
+  
+            if low_confidence:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = os.path.join(save_directory, f"low_confidence_{timestamp}.jpg")
+                cv2.imwrite(filename, frame)
+                print(f"[Saved] Low-confidence frame saved to {filename}")
 
-            # Count detections
             helmet_detections = len(output["helmet"])
             head_detections = len(output["head"])
 
-            # Increment total counters
             detections_total.labels('helmet').inc(helmet_detections)
             detections_total.labels('head').inc(head_detections)
 
-            # Update per-frame gauges
             ppe_detections_frame.labels(class_='helmet').set(helmet_detections)
             ppe_detections_frame.labels(class_='head').set(head_detections)
 
-            # Update confidence gauges
             if helmet_detections > 0:
                 confidence_avg.labels('helmet').set(np.mean(output["helmet"]))
             if head_detections > 0:
@@ -139,7 +144,6 @@ def process_inference(frame):
             return result
         else:
             return None
-
     except Exception as e:
         print(f"[Inference Error] {e}")
         error_count.inc()
