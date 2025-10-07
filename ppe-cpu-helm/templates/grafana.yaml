@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grafana
+  namespace: default
+  labels:
+    app: grafana
+spec:
+  containers:
+  - name: grafana
+    image: {{ .Values.grafana.image }}
+    imagePullPolicy: IfNotPresent
+    ports:
+    - containerPort: {{ .Values.grafana.port }}
+  imagePullSecrets:
+  - name: {{ .Values.imagePullSecret.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-svc
+  namespace: default
+spec:
+  selector:
+    app: grafana
+  type: NodePort
+  ports:
+  - name: port-3000
+    port: {{ .Values.grafana.port }}
+    targetPort: {{ .Values.grafana.port }}
+    nodePort: {{ .Values.grafana.nodePort }}

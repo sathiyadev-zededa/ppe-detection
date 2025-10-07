@@ -2,165 +2,153 @@ import argparse
 import pickle
 import struct
 import threading
+import queue
 import numpy as np
 import cv2
 import socket
 import torch
 import ssl
 import time, os, json
-from flask import Flask, Response, render_template, jsonify, send_file
+from flask import Flask, Response, render_template, jsonify
 from ultralytics import YOLO
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 
 ssl._create_default_https_context = ssl._create_unverified_context
-
-parser = argparse.ArgumentParser(description="YOLOv8 Stream Inference Server")
-parser.add_argument("--path", required=True, help="Path to the YOLOv8 model")
-args = parser.parse_args()
-path = args.path
-
-model = YOLO(path)
-
-host = '0.0.0.0'
-port = 8080
+frame_size = (640, 480)
 CLIENT_TIMEOUT = 10
+file_path = 'data.json'
+save_directory = '/app/data/low_confidence_frames'
+device_id = socket.gethostname()
 
-app = Flask(__name__)
+if not os.path.exists(save_directory):
+    os.makedirs(save_directory, exist_ok=True)
+
+parser = argparse.ArgumentParser(description="YOLOv8 TCP Stream (Threaded, CPU)")
+parser.add_argument("--path", required=True, help="Path to YOLOv8 model")
+parser.add_argument("--port", type=int, default=8080, help="TCP port")
+args = parser.parse_args()
+
+model = YOLO(args.path)
+model.to('cpu')
+
+frame_queue = queue.Queue(maxsize=1)
 current_frame = None
 frame_lock = threading.Lock()
-file_path = 'data.json'
-video_writer = None
-video_file = 'output.mp4'
-frame_size = (640, 480)  # Set your expected frame size
-fps = 20
 
+detection_counter = Counter("ppe_detections_total", "Total PPE detections", ["device_id", "class"])
+confidence_sum = Counter("ppe_confidence_sum", "Sum of detection confidences", ["device_id", "class"])
+confidence_count = Counter("ppe_confidence_count", "Count of detection confidences", ["device_id", "class"])
+low_conf_frames = Counter("ppe_low_confidence_frames_total", "Total frames with low-confidence detections", ["device_id"])
 
-def client_handler(connection):
-    global current_frame, video_writer
-    data = b""
-    payload_size = struct.calcsize("Q")
-    last_data_time = time.time()
-    frame_count = 0
-    save_directory = '/app/data/low_confidence_frames'
-
-    if not os.path.exists(save_directory):
-        os.makedirs(save_directory)
-
+def tcp_frame_receiver(port):
+    print("before connection")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind(('0.0.0.0', port))
+    server_socket.listen(1)
+    print(f"[TCP] Listening on port {port}...")
+    print("after connection")
     while True:
+        conn, addr = server_socket.accept()
+        print(f"[TCP] Connected from {addr}")
+        conn.settimeout(5.0)
+        data = b""
+        payload_size = struct.calcsize("Q")
+        print(f"payload size: {payload_size}")
+        last_data_time = time.time()
+
         try:
-            while len(data) < payload_size:
-                packet = connection.recv(2 * 1024)
-                if not packet:
-                    break
-                data += packet
+            while True:
+                while len(data) < payload_size:
+                    packet = conn.recv(4096)
+                    if not packet:
+                        break
+                    data += packet
 
-            if not data:
-                current_time = time.time()
-                if current_time - last_data_time > CLIENT_TIMEOUT:
-                    print("Client stopped sending data. Closing the connection.")
-                    break
+                if not data:
+                    if time.time() - last_data_time > CLIENT_TIMEOUT:
+                        print("[TCP] Client timeout, closing connection.")
+                        break
+                    continue
 
-            packed_msg_size = data[:payload_size]
-            data = data[payload_size:]
-            msg_size = struct.unpack("Q", packed_msg_size)[0]
+                packed_msg_size = data[:payload_size]
+                data = data[payload_size:]
+                msg_size = struct.unpack("Q", packed_msg_size)[0]
 
-            while len(data) < msg_size:
-                data += connection.recv(2 * 1024)
+                while len(data) < msg_size:
+                    data += conn.recv(4096)
 
-            frame_data = data[:msg_size]
-            data = data[msg_size:]
+                frame_data = data[:msg_size]
+                data = data[msg_size:]
+                camera_name, frame = pickle.loads(frame_data)
+                frame = cv2.resize(frame, frame_size)
 
-            camera_name, frame = pickle.loads(frame_data)
-            frame = cv2.resize(frame, frame_size)
-            results = model.track(frame, persist=True)
+                if frame is None:
+                    continue
 
-            for result in results:
-                detections = {
-                    "helmet": [],
-                    "head": []
-                }
+                if frame_queue.full():
+                    try:
+                        frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                frame_queue.put(frame)
 
-                for box in result.boxes:
-                    confidence = float(box.conf)
-                    if confidence < 0.5:
-                        frame_count += 1
-                        frame_name = f"low_confidence_frame_{frame_count}.jpg"
-                        frame_path = os.path.join(save_directory, frame_name)
-                        cv2.imwrite(frame_path, frame)
-
-                    detection = {
-                        "class": result.names[int(box.cls)],
-                        "confidence": confidence
-                    }
-                    if detection["class"] == "helmet":
-                        detections['helmet'].append(detection)
-                    elif detection["class"] == "head":
-                        detections.setdefault('Reflective-Jacket', []).append(detection)
-
-                with open(file_path, 'w') as file:
-                    json.dump(detections, file, indent=4)
-                print(f"prediction = {json.dumps(detections, indent=4)}")
-
-            annotated_frame = results[0].plot()
-
-            # Save current frame for video stream and recording
-            with frame_lock:
-                current_frame = annotated_frame.copy()
-
-            # Save to video
-            if video_writer:
-                video_writer.write(annotated_frame)
-
-            # Optional: save for MJPEG stream
-            np.save('array.npy', annotated_frame)
-
-            last_data_time = time.time()
+                last_data_time = time.time()
 
         except Exception as e:
-            print(f"Client disconnected - exception {e}")
-            cv2.destroyWindow(camera_name)
-            for _ in range(4):
-                cv2.waitKey(1)
-            break
-    connection.close()
-    return 0
+            print(f"[TCP] Exception: {e}")
+        finally:
+            conn.close()
+            print("[TCP] Connection closed.")
 
-def accept_connections(server_socket):
-    while True:
-        client, address = server_socket.accept()
-        print('Connected to: ' + address[0] + ':' + str(address[1]))
-        threading.Thread(target=client_handler, args=(client,)).start()
-
-def start_server(host, port):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        server_socket.bind((host, port))
-    except socket.error as e:
-        print(str(e))
-    print(f'Server is listening on port {port}...')
-    server_socket.listen()
-    threading.Thread(target=accept_connections, args=(server_socket,)).start()
-
-def generate_frames():
-    loaded_array = None
-
+def inference_worker():
+    global current_frame
+    frame_count = 0
+    print(f"inside inference_worker")
     while True:
         try:
-            loaded_array = np.load('array.npy')
-            os.remove('array.npy')
-        except:
-            pass
-
-        if loaded_array is None:
+            frame = frame_queue.get(timeout=1)
+        except queue.Empty:
+            print("Queue empty...", flush=True)
             continue
+        print("Processing frame...", flush=True)
+        results = model.track(frame, persist=True)
 
-        ret, buffer = cv2.imencode('.jpg', loaded_array)
-        if not ret:
-            print("Failed to encode frame")
-            continue
-        frame = buffer.tobytes()
+        detections = { "helmet": [], "head": [] }
 
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        if len(results) > 0:
+            result = results[0]
+            for box in result.boxes:
+                confidence = float(box.conf)
+                cls_name = result.names[int(box.cls)]
+                detection = {"class": cls_name, "confidence": confidence}
+
+                detection_counter.labels(device_id=args.device_id, class=cls_name).inc()
+                confidence_sum.labels(device_id=args.device_id, class=cls_name).inc(confidence)
+                confidence_count.labels(device_id=args.device_id, class=cls_name).inc()
+
+                if confidence < 0.5:
+                    frame_count += 1
+                    frame_name = f"low_confidence_frame_{frame_count}.jpg"
+                    cv2.imwrite(os.path.join(save_directory, frame_name), frame)
+                    low_conf_frames.labels(device_id=args.device_id).inc()
+
+                if cls_name == "helmet":
+                    detections["helmet"].append(detection)
+                elif cls_name == "head":
+                    detections["head"].append(detection)
+
+            with open(file_path, 'w') as f:
+                json.dump(detections, f, indent=4)
+
+            annotated_frame = result.plot()
+        else:
+            annotated_frame = frame.copy()
+
+        with frame_lock:
+            current_frame = annotated_frame.copy()
+
+app = Flask(__name__)
 
 @app.route('/')
 def index():
@@ -177,27 +165,26 @@ def get_inference_data():
             data = json.load(file)
         os.remove(file_path)
         return jsonify(data)
-    except FileNotFoundError:
-        return {}
-    except json.JSONDecodeError:
-        return {}
-    except IOError as e:
-        print(f"Error reading file {file_path}: {e}")
-        return {}
+    except:
+        return jsonify({})
 
-@app.route('/retain_files', methods=['GET'])
-def get_retrain_files():
-    try:
-        directory = os.path.abspath('/app/data/low_confidence_frames')
-        if not os.path.isdir(directory):
-            return jsonify({'error': 'Directory not found'}), 404
-        file_line = os.listdir(directory)
-        return jsonify(file_line)
-    except Exception as e:
-        print(f"Exception while collecting low confidence files: {e}")
-        return {}
+@app.route('/metrics')
+def metrics():
+    return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+def generate_frames():
+    while True:
+        with frame_lock:
+            frame = None if current_frame is None else current_frame.copy()
+        if frame is None:
+            time.sleep(0.03)
+            continue
+        ret, buffer = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
 if __name__ == "__main__":
-    threading.Thread(target=start_server, args=(host, port)).start()
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+    threading.Thread(target=tcp_frame_receiver, args=(args.port,), daemon=True).start()
+    threading.Thread(target=inference_worker, daemon=True).start()
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
 

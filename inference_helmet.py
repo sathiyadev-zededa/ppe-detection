@@ -10,6 +10,7 @@ import torch
 import ssl
 import time, os, json
 from flask import Flask, Response, render_template, jsonify
+from prometheus_client import start_http_server, Counter, Gauge, Histogram
 from ultralytics import YOLO
 
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -32,6 +33,15 @@ model.to('cpu')
 frame_queue = queue.Queue(maxsize=1)
 current_frame = None
 frame_lock = threading.Lock()
+
+start_http_server(8000)
+
+detections_total = Counter('ppe_detections_total', 'Total PPE detections', ['class'])
+violations_total = Counter('ppe_violations_total', 'Total PPE violations', ['type'])
+confidence_avg = Gauge('ppe_confidence_avg', 'Average confidence score', ['class'])
+inference_latency = Histogram('ppe_inference_latency_seconds', 'Inference latency', buckets=[0.1, 0.5, 1.0, 2.0, 5.0])
+error_count = Counter('ppe_errors_total', 'Total errors during detection')
+health_gauge = Gauge('ppe_app_health', 'Application health status (1=healthy, 0=unhealthy)')
 
 def tcp_frame_receiver(port):
     print("before connection")
@@ -75,9 +85,11 @@ def tcp_frame_receiver(port):
                 data = data[msg_size:]
                 camera_name, frame = pickle.loads(frame_data)
                 frame = cv2.resize(frame, frame_size)
+                
                 #np_data = np.frombuffer(frame_data, np.uint8)
                 #frame = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
                 #print(f"FRAME ::::: {frame}")
+
                 if frame is None:
                     continue
 
@@ -98,6 +110,40 @@ def tcp_frame_receiver(port):
             conn.close()
             print("[TCP] Connection closed.")
 
+def process_inference(frame):
+    try:
+        start_time = time.time()
+        results = model.track(frame, persist=True)
+        output = {
+            "helmet": [],
+            "head": []
+        }
+
+        if len(results) > 0:
+            result = results[0]
+            for box in result.boxes:
+                cls_name = result.names[int(box.cls)]
+                confidence = float(box.conf)
+                output[cls_name].append({"class": cls_name, "confidence": confidence})
+
+            helmet_detections = len(output["helmet"])
+            head_detection = len(output["head"])
+
+            detections_total.labels('helmet').inc(helmet_detections)
+            detections_total.labels('head').inc(head_detection)
+
+            if head_detection > 0 and helmet_detections == 0:
+                violations_total.labels('no_helmet').inc(head_detection)
+
+            return result
+        else:
+            return None
+    except Exception as e:
+        error_count.inc()
+        health_gauge.set(0)
+        print(f"Error: {e}")
+        return None
+
 def inference_worker():
     global current_frame
     frame_count = 0
@@ -108,40 +154,19 @@ def inference_worker():
         except queue.Empty:
             print("Queue empty...", flush=True)
             continue
+
         print("Processing frame...", flush=True)
-        results = model.track(frame, persist=True)
+        result = process_inference(frame)
 
-        detections = {
-                "helmet": [], 
-                "head": []
-        }
-
-        if len(results) > 0:
-            result = results[0]
-            for box in result.boxes:
-                confidence = float(box.conf)
-                cls_name = result.names[int(box.cls)]
-                detection = {"class": cls_name, "confidence": confidence}
-
-                if confidence < 0.5:
-                    frame_count += 1
-                    frame_name = f"low_confidence_frame_{frame_count}.jpg"
-                    cv2.imwrite(os.path.join(save_directory, frame_name), frame)
-
-                if cls_name == "helmet":
-                    detections["helmet"].append(detection)
-                elif cls_name == "head":
-                    detections["head"].append(detection)
-
-            with open(file_path, 'w') as f:
-                json.dump(detections, f, indent=4)
-
-            annotated_frame = result.plot()
-        else:
+        if result == None:
             annotated_frame = frame.copy()
+        else:
+            annotated_frame = result.plot()
 
         with frame_lock:
             current_frame = annotated_frame.copy()
+
+
 
 app = Flask(__name__)
 
@@ -152,16 +177,6 @@ def index():
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-@app.route('/inference', methods=['GET'])
-def get_inference_data():
-    try:
-        with open(file_path, 'r') as file:
-            data = json.load(file)
-        os.remove(file_path)
-        return jsonify(data)
-    except:
-        return jsonify({})
 
 def generate_frames():
     while True:
